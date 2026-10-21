@@ -1,0 +1,39 @@
+# VoiceStudio API as a Vercel container service (see vercel.json).
+#
+# CPU-only: Vercel Functions have no GPU. The web UI is built and served by the
+# separate "web" service, so this image carries the backend only. Model
+# downloads and user data live on the instance's ephemeral disk and are lost
+# when it scales down.
+FROM python:3.11-slim
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app/backend
+ENV OMNIVOICE_SERVER_MODE=1
+ENV OMNIVOICE_BIND_HOST=0.0.0.0
+ENV OMNIVOICE_DATA_DIR=/tmp/omnivoice_data
+ENV HF_HOME=/tmp/omnivoice_data/huggingface
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv
+ENV PATH=/opt/venv/bin:$PATH
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ffmpeg \
+    libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m pip install --no-cache-dir uv
+
+# The lockfile's "cpu" group pins the CPU wheels of torch/torchaudio/torchvision.
+COPY pyproject.toml uv.lock README.md ./
+RUN uv sync --frozen --no-dev --no-default-groups --group cpu --no-install-project --no-cache
+
+COPY backend/ ./backend/
+COPY omnivoice/ ./omnivoice/
+COPY config/ ./config/
+COPY alembic.ini ./
+
+# Vercel routes container traffic to port 80 unless PORT is set.
+CMD ["python3", "backend/docker_entrypoint.py", "--port", "80"]

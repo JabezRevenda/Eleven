@@ -1,7 +1,27 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": null,
-  "installCommand": "ELECTRON_SKIP_BINARY_DOWNLOAD=1 bun install",
-  "buildCommand": "bun run build:web",
-  "outputDirectory": "frontend/dist"
+  "services": {
+    "web": {
+      "root": "electron",
+      "framework": "vite",
+      "installCommand": "ELECTRON_SKIP_BINARY_DOWNLOAD=1 bun install",
+      "buildCommand": "bun run locale:check && OMNIVOICE_WEB_API_BASE=/api vite build --config vite.web.config.ts --outDir ../../dist --emptyOutDir",
+      "outputDirectory": "dist"
+    },
+    "api": {
+      "root": ".",
+      "runtime": "container",
+      "entrypoint": "deploy/Dockerfile.vercel",
+      "routes": [
+        {
+          "src": "^/api/(?!(?:settings|auth|integrations|mcp)(?:/|$))(.*)$",
+          "transforms": [{ "type": "request.path", "op": "set", "args": "/$1" }]
+        }
+      ]
+    }
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": { "service": "api" } },
+    { "source": "/(.*)", "destination": { "service": "web" } }
+  ]
 }

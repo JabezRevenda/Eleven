@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import react from '@vitejs/plugin-react';
@@ -12,6 +13,25 @@ const version = JSON.parse(
   readFileSync(resolve(import.meta.dirname, '../package.json'), 'utf8'),
 ).version;
 const backendPort = process.env.OMNIVOICE_PORT || String(DEFAULT_BACKEND_PORT);
+// Build-time twin of the backend's OMNIVOICE_PUBLIC_API_BASE injection
+// (backend/core/spa_inject.py), for hosts that serve this bundle statically and
+// reach the API under a path prefix, e.g. "/api" behind a Vercel rewrite.
+const webApiBase = (process.env.OMNIVOICE_WEB_API_BASE || '').trim().replace(/\/+$/, '');
+
+function injectApiBase(html: string): string {
+  const script = `window.__OMNIVOICE_API_BASE__=${JSON.stringify(webApiBase)};`;
+  const digest = createHash('sha256').update(script).digest('base64');
+  html = html.replace("script-src 'self'", `script-src 'self' 'sha256-${digest}'`);
+  if (/^https?:\/\//.test(webApiBase)) {
+    const url = new URL(webApiBase);
+    const ws = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    html = html.replace(
+      "connect-src 'self'",
+      `connect-src 'self' ${url.origin} ${ws}//${url.host}`,
+    );
+  }
+  return html.replace('<head>', `<head><script>${script}</script>`);
+}
 
 export default defineConfig({
   root,
@@ -22,7 +42,8 @@ export default defineConfig({
     {
       name: 'app-identity',
       transformIndexHtml(html) {
-        return html.replaceAll('__APP_PRODUCT_NAME__', PRODUCT_NAME);
+        html = html.replaceAll('__APP_PRODUCT_NAME__', PRODUCT_NAME);
+        return webApiBase ? injectApiBase(html) : html;
       },
     },
     {
